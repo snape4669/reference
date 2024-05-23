@@ -1,35 +1,46 @@
-name: 每8个小时更新一次reference
+name: Upstream Sync
+
+permissions:
+  contents: write
+  issues: write
+  actions: write
+
 on:
   schedule:
-    - cron: '21 */8 * * *' # 定时任务
-  workflow_dispatch:       # 手动运行
-
-env: # 设置环境变量
-  TZ: Asia/Shanghai # 时区（设置时区可使页面中的`最近更新时间`使用时区时间）
+    - cron: '0 * * * *' # every hour
+  workflow_dispatch:
 
 jobs:
-  build: # 自定义名称
+  sync_latest_from_upstream:
+    name: Sync latest commits from upstream repo
     runs-on: ubuntu-latest
+    if: ${{ github.event.repository.fork }}
+
     steps:
-      - name: 🚜 拉取最新代码
-        uses: actions/checkout@v3
-        with:
-          ref: 'main'
-          repository: 'jaywcjlove/reference'
+      - uses: actions/checkout@v4
 
-      - name: ♻️ 编译静态文件
-        run: |
-          echo -e 'REF_URL=https://refs.xxx.net/\nREF_LABEL=网站首页' > .env
-          npm install
-          npm run build
-
-      - name: 🚁 部署到服务器
-        uses: wlixcc/SFTP-Deploy-Action@v1.0
+      - name: Clean issue notice
+        uses: actions-cool/issues-helper@v3
         with:
-          username: 'root'   #ssh user name
-          port: '22' # 远程服务器ssh端口，默认22
-          server: 'prod.refs.xxx.net' # 远程服务器IP
-          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }} # 认证服务器秘钥对的私钥
-          local_path: './dist/*'  # 对应我们项目打包后的静态文件路径
-          remote_path: '/data/www/refs.xxx.net' # 服务器上的路径
-          delete_remote_files: true
+          actions: 'close-issues'
+          labels: '🚨 Sync Fail'
+
+      - name: Sync upstream changes
+        id: sync
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
+        with:
+          upstream_sync_repo: jaywcjlove/reference
+          upstream_sync_branch: main
+          target_sync_branch: main
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }} # automatically generated, no need to set
+          test_mode: false
+
+      - name: Sync check
+        if: failure()
+        uses: actions-cool/issues-helper@v3
+        with:
+          actions: 'create-issue'
+          title: '🚨 同步失败 | Sync Fail'
+          labels: '🚨 Sync Fail'
+          body: |
+            Oops!
